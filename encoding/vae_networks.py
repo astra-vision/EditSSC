@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import numpy as np
+from diffusers.models import VQModel
 
 
 
@@ -33,26 +32,13 @@ class SDVQVAEScene3D(nn.Module):
 
     def __init__(self, args):
         super().__init__()
-        try:
-            from diffusers.models import VQModel as _VQModel
-        except ImportError:
-            raise ImportError(
-                "diffusers is required for SDVQVAEScene3D. "
-                "Install with: pip install diffusers"
-            )
 
         num_class = args.num_class
         H_grid, W_grid, Z_grid = args.grid_size
         self.Z = Z_grid
         self.num_class = num_class
-        self.use_one_hot = getattr(args, 'use_one_hot', False)
-
-        if self.use_one_hot:
-            self.C = num_class
-            self.embedding = None
-        else:
-            self.C = args.geo_feat_channels
-            self.embedding = nn.Embedding(num_class, self.C)
+        self.C = args.geo_feat_channels
+        self.embedding = nn.Embedding(num_class, self.C)
 
         sd_latent_channels    = getattr(args, 'sd_latent_channels', 16)
         sd_n_embed            = getattr(args, 'sd_n_embed', 512)
@@ -66,10 +52,10 @@ class SDVQVAEScene3D(nn.Module):
         print(
             f'Building SDVQVAEScene3D: in_channels={in_channels_2d} (C={self.C} × Z={Z_grid}), '
             f'latent={sd_latent_channels}, codebook={sd_n_embed}, '
-            f'blocks={sd_block_out_channels}, one_hot={self.use_one_hot}'
+            f'blocks={sd_block_out_channels}'
         )
 
-        self.vqvae = _VQModel(
+        self.vqvae = VQModel(
             in_channels=in_channels_2d,
             out_channels=in_channels_2d,
             down_block_types=("DownEncoderBlock2D",) * len(sd_block_out_channels),
@@ -93,10 +79,7 @@ class SDVQVAEScene3D(nn.Module):
         """vol [B, H, W, Z] (int labels)  →  [B, C*Z, H, W] (float features)"""
         x = vol.detach().clone()
         x[x == 255] = 0
-        if self.use_one_hot:
-            x = F.one_hot(x, num_classes=self.num_class).float() # [B, H, W, Z, num_class]
-        else:
-            x = self.embedding(x)                           # [B, H, W, Z, C]
+        x = self.embedding(x)                           # [B, H, W, Z, C]
         
         x = x.permute(0, 4, 1, 2, 3)                   # [B, C, H, W, Z]
         B, C, H, W, Z = x.shape
@@ -160,11 +143,7 @@ class SDVQVAEScene3D(nn.Module):
         return logits
 
     def geo_parameters(self):
-        return (
-            list(self.embedding.parameters())
-            + list(self.vqvae.parameters())
-            + list(self.class_head.parameters())
-        )
+        return list(self.embedding.parameters()) + list(self.vqvae.parameters()) + list(self.class_head.parameters())
 
 def create_autoencoder(args):
     """

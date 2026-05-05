@@ -1,10 +1,13 @@
 import torch
 import numpy as np
 import argparse
+import os
+import sys
+import gc
+import traceback
 from encoding.networks import create_autoencoder
 from diffusion.triplane_util import compose_featmaps, decompose_featmaps
 from tqdm.auto import tqdm
-import os
 from dataset.kitti_dataset import SemKITTI
 from dataset.carla_dataset import CarlaDataset
 from dataset.path_manager import *
@@ -16,7 +19,6 @@ from utils.utils import make_query
 
 import torch.nn.functional as F
 from omegaconf import OmegaConf
-import gc
 
 
 def apply_vox_transformations(vox):
@@ -96,13 +98,12 @@ def save(args):
     print(f'The number of voxel labels is {len(dataset)}.')
     print(f'Load autoencoder model from "{args.resume}"')
 
-    if args.semantic_training_or_generation :
-        model = create_autoencoder(args)
-        model = model.cuda()
-        print("resume",args.resume)
-        checkpoint = torch.load(args.resume)
-        model.load_state_dict(checkpoint['model'])
-        model.eval()
+    model = create_autoencoder(args)
+    model = model.cuda()
+    print("resume",args.resume)
+    checkpoint = torch.load(args.resume)
+    model.load_state_dict(checkpoint['model'])
+    model.eval()
     
 
 
@@ -159,15 +160,12 @@ def save(args):
                 raise
         except Exception as e:
             print(f"\n❌ Unexpected error in DataLoader: {e}")
-            import traceback
             traceback.print_exc()
             raise
      
 
 
 def main():
-    import sys
-    import os
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True, help='Path to config YAML')
     #parser.add_argument('--resume_checkpoint', type=str, default=None, help='Optional path to checkpoint')

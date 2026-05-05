@@ -6,13 +6,6 @@ import yaml
 import pathlib
 import torch
 from scipy.ndimage import distance_transform_edt
-import torch as th
-from PIL import Image
-import torchvision.transforms as T
-from utils.utils import make_query
-import cv2
-import re
-from dataset.visibility_utils import to_visible_shell
 
 
 class SemKITTI(data.Dataset):
@@ -28,15 +21,14 @@ class SemKITTI(data.Dataset):
         remap_lut = np.zeros((maxkey + 100), dtype=np.int32)
         remap_lut[list(remapdict.keys())] = list(remapdict.values())
 
-        remap_lut[remap_lut == 0] = 255  # map 0 to 'invalid'
-        remap_lut[0] = 0  # only 'empty' stays 'empty'.
+        remap_lut[remap_lut == 0] = 255
+        remap_lut[0] = 0
         self.learning_map = remap_lut
         self.imageset = imageset
         self.data_path = args.data_path
         self.folder = folder
         self.augment=augment
 
-        # Determine device (GPU if available, else CPU)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         if imageset == 'train':
@@ -67,7 +59,6 @@ class SemKITTI(data.Dataset):
   
         
         for i_folder in split:
-            # velodyne path corresponding to voxel path
             if self.args.overfit :
                 i_folder=8
             complete_path = os.path.join(args.data_path, str(i_folder).zfill(2), folder)
@@ -76,7 +67,7 @@ class SemKITTI(data.Dataset):
 
 
             for idx,filename in enumerate(files):
-                if (imageset == 'val') :
+                if (imageset == 'val' or imageset == 'train') :
                     if (int(str(filename).split('/')[-1].split('.')[0]) % 5 == 0) :
                         self.scans.append ({
                             "volume_path": str(filename),
@@ -131,34 +122,27 @@ class SemKITTI(data.Dataset):
                 elif p == 2:
                     voxel_label, invalid = flip(voxel_label, invalid, flip_dim=0)
                     voxel_label, invalid = flip(voxel_label, invalid, flip_dim=1)
-            # Option to use get_query_all instead of get_query
             use_query_all = getattr(self.args, 'use_query_all', False)
-            # Use cropped grid size if available, otherwise use original
             grid_size_to_use = tuple(self.args.grid_size)
-            if use_query_all : #or self.args.image_code_training:
+            if use_query_all :
                 mp = getattr(self.args, 'max_points', 1000000) 
                 query, xyz_label, xyz_center = get_query_all(voxel_label, grid_size=grid_size_to_use, voxel_indices=None, max_points=mp)
             else:  
                 query, xyz_label, xyz_center = get_query(voxel_label, grid_size=grid_size_to_use, max_points=getattr(self.args, 'max_points', 1000000))
         else :
             query, xyz_label, xyz_center = torch.zeros(1), torch.zeros(1), torch.zeros(1)
+        data = {
+            "voxel_label": voxel_label,
+            "query": query,
+            "label": xyz_label,
+            "coord": xyz_center,
+            "path": path,
+            "invalid": invalid,
+        }
 
-
-
-        if self.args.semantic_training_or_generation :
-            data={
-                "voxel_label": voxel_label,
-                "query": query,
-                "label": xyz_label,
-                "coord": xyz_center,
-                "path": path,
-                "invalid": invalid,
-            }
-       
-        
         return data
 
-        # return voxel_label, query, xyz_label, xyz_center, self.im_idx[index], invalid
+        
 
 
 def get_query(voxel_label, num_class=20, grid_size = (256,256,32), max_points = 400000):
@@ -190,7 +174,6 @@ def get_query(voxel_label, num_class=20, grid_size = (256,256,32), max_points = 
         xyzl = torch.cat(xyzl, dim=0)
         xyzl = xyzl[:max_points]
 
-    # permutation
     perm = torch.randperm(xyzl.shape[0])
     xyzl = xyzl[perm]
 
@@ -217,7 +200,6 @@ def get_query_all(voxel_label, grid_size=(256, 256, 32), voxel_indices=None, max
                     Default None = return all 256*256*32 = 2M points.
     """
 
-    # 1️⃣ Crée la grille complète de coordonnées (x, y, z)
     x = torch.arange(grid_size[0])
     y = torch.arange(grid_size[1])
     z = torch.arange(grid_size[2])
@@ -225,19 +207,16 @@ def get_query_all(voxel_label, grid_size=(256, 256, 32), voxel_indices=None, max
     if voxel_indices is not None:
         coords = voxel_indices
     else:
-        coords = torch.stack((X, Y, Z), dim=-1).reshape(-1, 3)  # (N, 3)
+        coords = torch.stack((X, Y, Z), dim=-1).reshape(-1, 3)
 
-    # 2️⃣ Récupère les labels correspondants à chaque voxel
     voxel_tensor = torch.tensor(voxel_label, dtype=torch.long)
     labels = voxel_tensor[coords[:, 0], coords[:, 1], coords[:, 2]].reshape(-1)
 
-    # 3️⃣ Subsample si max_points est spécifié
     if max_points is not None and coords.shape[0] > max_points:
         perm = torch.randperm(coords.shape[0])[:max_points]
         coords = coords[perm]
         labels = labels[perm]
 
-    # 4️⃣ Coordonnées normalisées dans [-1, 1]
     query = torch.zeros_like(coords, dtype=torch.float32)
     query[:, 0] = 2 * coords[:, 0] / float(grid_size[0] - 1) - 1
     query[:, 1] = 2 * coords[:, 1] / float(grid_size[1] - 1) - 1

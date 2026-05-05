@@ -1,19 +1,14 @@
 from torch.utils.tensorboard import SummaryWriter
 from dataset.dataset_builder import dataset_builder
-from encoding.networks import  create_autoencoder
-from omegaconf import OmegaConf
+from encoding.vae_networks import create_autoencoder
 from encoding.lovasz import lovasz_softmax
 from utils.utils import save_remap_lut, point2voxel
 import os
 import torch
-import torch.nn.functional as F
 from tqdm.auto import tqdm
 from torch.cuda.amp import autocast, GradScaler
 import numpy as np
 from encoding.ssc_metrics import SSCMetrics
-from diffusion.nn import mean_flat
-from encoding.lovasz import lovasz_softmax
-from utils.utils import make_query
 
 
 
@@ -41,8 +36,7 @@ class Trainer:
 
 
         # model & optimizer
-        if self.args.semantic_training_or_generation :
-            self.model = create_autoencoder(args).cuda()
+        self.model = create_autoencoder(args).cuda()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr)
         self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, args.lr_scheduler_steps, args.lr_scheduler_decay) if args.lr_scheduler else None
         if self.args.mixed_precision:
@@ -195,7 +189,7 @@ class Trainer:
         for loss_name in losses.keys():
             self.writer.add_scalar(f'Train_Loss_epochwise/loss_{loss_name}', total_losses[loss_name] / len(self.train_dataset), global_step=self.epoch)
 
-        print(f"Epoch: {self.epoch} \t IOU: \t {iou:01f} \t mIoU: \t {miou:01f}")
+        
 
 
     @torch.no_grad()
@@ -271,23 +265,9 @@ class Trainer:
 
 def get_pred_mask(model_output, separate_decoder=False, returns_volume=False):
     preds = model_output
-    if returns_volume:
-        # Volume output: [B, X, Y, Z, C]
-        pred_prob = torch.softmax(preds, dim=4)  # Softmax over class dimension
-        pred_mask = pred_prob.argmax(dim=4).float()  # [B, X, Y, Z]
-    else:
-        # Query points output: [B, N, C]
-        pred_prob = torch.softmax(preds, dim=2)
-        pred_mask = pred_prob.argmax(dim=2).float()  # [B, N]
+    # Query points output: [B, N, C]
+    pred_prob = torch.softmax(preds, dim=2)
+    pred_mask = pred_prob.argmax(dim=2).float()  # [B, N]
     return pred_mask
 
-def mean_flat_f(dense_triplane,sparse_triplane):
-    """
-    Take the mean over all non-batch dimensions.
-    """
-    l2_xy = mean_flat((dense_triplane[0] - sparse_triplane[0])**2)
-    l2_xz = mean_flat((dense_triplane[1] - sparse_triplane[1])**2)
-    l2_yz = mean_flat((dense_triplane[2] - sparse_triplane[2])**2)
-    loss = l2_xy + l2_xz + l2_yz
-    return loss
 
