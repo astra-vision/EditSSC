@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Local data and checkpoints
+models/
+triplanes
+triplanes/
+*.pt
+*.pth
+*.ckpt
+*.npy
+
+# Cluster job scripts (local paths)
+configs/*.slurm
+
+# Logs
+*.log
+*.err
+
+# Editor / OS
+.DS_Store
+.vscode/
+*.swp

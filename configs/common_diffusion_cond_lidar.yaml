@@ -1,0 +1,92 @@
+# Diffusion training with LiDAR conditioning (cond_lidar).
+#
+# WARNING: cond_lidar requires additional code in unet_stable_diffusion.py
+# that is not yet ported from clean_Semcity. Specifically:
+#   - UNetModel.__init__: lidar_embedding, lidar_encoder, lidar_xy_conv layers
+#   - UNetModel.forward: encode raw LiDAR depth → BEV feature → concat to noisy input
+#   - TriplaneDataset.__getitem__: load velodyne .bin + depth + cam_K + T_velo_to_cam
+#
+# Parameters that differ from common_diffusion_base.yaml are marked with (*)
+
+dataset: kitti
+yaml_path: "/home/fbalde/EditSSC/dataset/semantic-kitti.yaml"
+data_path: "/home/fbalde/EditSSC/triplanes"
+save_path: "/home/fbalde/EditSSC/models/diffusion_cond_lidar"
+gpu_id: 0
+diff_path: /home/fbalde/EditSSC/models/diffusion_cond_lidar/common_diffusion_cond_lidar/checkpoints/ema_0.9999_020000.pt
+ae_path: /home/fbalde/EditSSC/configs/common_ae_base.yaml
+
+num_class: 20
+grid_size: [256, 256, 32]
+tri_size: [128, 128, 32]
+augment_data: false
+batch_size: 4
+max_train_samples: null
+
+triplane_noisy: triplane_sem
+triplane_cond: no_path
+conditioning: false
+guidance_prob: 0.0
+scale_triplanes: false
+triplane_scale_factor: 1.0
+
+steps: 1000
+predict_xstart: true
+learn_sigma: false
+timestep_respacing: "100"
+diff_n_iters: 500000
+diff_lr: 0.00001
+schedule_sampler: "uniform"
+ema_rate: 0.9999
+use_ema: true
+weight_decay: 0.0
+log_interval: 500
+save_interval: 5000
+use_fp16: false
+resume_checkpoint: /home/fbalde/EditSSC/models/diffusion_cond_lidar/common_diffusion_cond_lidar/checkpoints/ema_0.9999_020000.pt
+
+triplane_loss_type: "l2"
+ssc_refine: false
+large_noise_trick: false
+cfg: false
+repaint: false
+
+
+use_cosine_lr: true
+use_constant_lr: false
+warmup_steps: 1000
+grad_clip: 1.0
+
+# (*) cond_lidar: UNet concatenates an encoded LiDAR BEV feature to the noisy input.
+#     This doubles in_channels, so geo_feat_channels here reflects the combined width.
+#     The UNet in_channels = geo_feat_channels (noisy) + geo_feat_channels (lidar) = 2 * 8 = 16.
+cond_lidar: true
+load_lidar: true
+z_down: false
+padding_mode: replicate
+dilation: [1, 2, 2, 1, 1]
+use_group_norm: false
+
+# Model (SD UNet)
+image_size: 128
+geo_feat_channels: 8          # latent channels from AE (sd_latent_channels in common_ae_base.yaml)
+model_channels: 64
+channel_mult: [1, 2, 4]
+attention_resolutions: [4]
+num_res_blocks: 2
+dropout: 0.0
+conv_resample: true
+num_heads: 8
+num_head_channels: -1
+num_heads_upsample: -1
+legacy: true
+n_embed: null
+num_classes: null
+use_scale_shift_norm: false
+resblock_updown: false
+use_new_attention_order: false
+use_checkpoint: false
+use_spatial_transformer: false
+transformer_depth: 1
+
+use_stable_diffusion_bev: true
